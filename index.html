@@ -1,0 +1,397 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JLR Analysis RAG</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { 
+            padding-top: 20px; 
+            background-color: #f5f5f5;
+        }
+        .chat-container {
+            height: 60vh;
+            overflow-y: auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .user-message {
+            background-color: #e3f2fd;
+            padding: 10px 15px;
+            border-radius: 18px;
+            margin: 5px 0;
+            max-width: 80%;
+            margin-left: auto;
+            text-align: right;
+        }
+        .assistant-message {
+            background-color: #f1f1f1;
+            padding: 10px 15px;
+            border-radius: 18px;
+            margin: 5px 0;
+            max-width: 80%;
+        }
+        .source-item {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 5px;
+            padding: 5px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+        }
+        .timestamp {
+            font-size: 0.7rem;
+            color: #999;
+            margin-top: 2px;
+        }
+        .stats-panel {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+        }
+        #processingStatus {
+            font-style: italic;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row mb-4">
+            <div class="col-md-12 text-center">
+                <h1>JLR Analysis RAG</h1>
+                <p class="lead">Retrieve information from JLR documents using RAG technology</p>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <!-- Chat Container -->
+                <div class="chat-container" id="chatContainer"></div>
+                
+                <!-- Chat Input -->
+                <div class="input-group mb-3">
+                    <input type="text" id="queryInput" class="form-control" placeholder="Ask a question about JLR analysis...">
+                    <button class="btn btn-primary" type="button" id="sendButton">
+                        <span id="buttonText">Send</span>
+                        <span id="loadingSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                    </button>
+                </div>
+                <div id="processingStatus"></div>
+            </div>
+            
+            <div class="col-md-4">
+                <!-- Document Processing -->
+                <div class="stats-panel">
+                    <h5>Document Processing</h5>
+                    <div class="mb-3">
+                        <label for="bucketPath" class="form-label">GCS Bucket Path:</label>
+                        <input type="text" class="form-control form-control-sm" id="bucketPath" placeholder="gs://bucket-name/path">
+                    </div>
+                    <button class="btn btn-sm btn-primary mb-3" id="processButton">Process Documents</button>
+                    <div id="processingResult" class="mt-2"></div>
+                </div>
+                
+                <!-- Document Stats -->
+                <div class="stats-panel">
+                    <h5>Document Statistics</h5>
+                    <button class="btn btn-sm btn-info mb-3" id="statsButton">Get Statistics</button>
+                    <div id="statsResult">
+                        <p>Click "Get Statistics" to view document information</p>
+                    </div>
+                </div>
+                
+                <!-- Search Analytics -->
+                <div class="stats-panel">
+                    <h5>Search Analytics</h5>
+                    <button class="btn btn-sm btn-info mb-3" id="analyticsButton">Get Analytics</button>
+                    <div id="analyticsResult">
+                        <p>Click "Get Analytics" to view search performance</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE_URL = 'http://localhost:8000/api';
+        const chatContainer = document.getElementById('chatContainer');
+        const queryInput = document.getElementById('queryInput');
+        const sendButton = document.getElementById('sendButton');
+        const buttonText = document.getElementById('buttonText');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const processingStatus = document.getElementById('processingStatus');
+        
+        // Document processing elements
+        const bucketPath = document.getElementById('bucketPath');
+        const processButton = document.getElementById('processButton');
+        const processingResult = document.getElementById('processingResult');
+        
+        // Stats elements
+        const statsButton = document.getElementById('statsButton');
+        const statsResult = document.getElementById('statsResult');
+        
+        // Analytics elements
+        const analyticsButton = document.getElementById('analyticsButton');
+        const analyticsResult = document.getElementById('analyticsResult');
+        
+        // Chat history
+        let chatHistory = [];
+        
+        // Function to get current time
+        function getCurrentTime() {
+            const now = new Date();
+            return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        
+        // Function to add message to chat
+        function addMessage(role, content, sources = [], timestamp = getCurrentTime()) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = role === 'user' ? 'user-message' : 'assistant-message';
+            
+            // Format markdown-like content
+            let formattedContent = content
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+                .replace(/`(.*?)`/g, '<code>$1</code>')
+                .replace(/\n\n/g, '<br><br>')
+                .replace(/\n/g, '<br>');
+            
+            messageDiv.innerHTML = formattedContent;
+            
+            // Add timestamp
+            const timestampDiv = document.createElement('div');
+            timestampDiv.className = 'timestamp';
+            timestampDiv.textContent = timestamp;
+            messageDiv.appendChild(timestampDiv);
+            
+            // Add sources if present
+            if (sources && sources.length > 0) {
+                const sourcesDiv = document.createElement('div');
+                sourcesDiv.className = 'mt-2';
+                
+                const sourcesHeading = document.createElement('small');
+                sourcesHeading.innerHTML = '<strong>Sources:</strong>';
+                sourcesDiv.appendChild(sourcesHeading);
+                
+                sources.forEach(source => {
+                    const sourceItem = document.createElement('div');
+                    sourceItem.className = 'source-item';
+                    sourceItem.textContent = `${source.doc_id}, Page ${source.page_number}`;
+                    sourcesDiv.appendChild(sourceItem);
+                });
+                
+                messageDiv.appendChild(sourcesDiv);
+            }
+            
+            chatContainer.appendChild(messageDiv);
+            
+            // Save to history
+            chatHistory.push({
+                role,
+                content,
+                sources,
+                timestamp
+            });
+            
+            // Scroll to bottom
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        // Function to query the RAG API
+        async function queryRAG(question) {
+            try {
+                // Show loading state
+                queryInput.disabled = true;
+                sendButton.disabled = true;
+                buttonText.classList.add('d-none');
+                loadingSpinner.classList.remove('d-none');
+                processingStatus.textContent = 'Processing your question...';
+                
+                const response = await fetch(`${API_BASE_URL}/query`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query: question
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Error: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                // Add assistant response to chat
+                addMessage('assistant', data.answer, data.sources);
+                
+                // Show processing time
+                processingStatus.textContent = `Processed in ${data.metadata?.total_time?.toFixed(2) || 'N/A'} seconds`;
+                
+            } catch (error) {
+                console.error('Error:', error);
+                addMessage('assistant', `Error processing your request: ${error.message}`);
+                processingStatus.textContent = 'Error occurred during processing';
+            } finally {
+                // Reset UI
+                queryInput.disabled = false;
+                sendButton.disabled = false;
+                buttonText.classList.remove('d-none');
+                loadingSpinner.classList.add('d-none');
+                queryInput.focus();
+            }
+        }
+        
+        // Process documents function
+        async function processDocuments() {
+            const path = bucketPath.value.trim();
+            if (!path) {
+                processingResult.innerHTML = '<div class="alert alert-warning">Please enter a bucket path</div>';
+                return;
+            }
+            
+            try {
+                processButton.disabled = true;
+                processingResult.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Processing...';
+                
+                const response = await fetch(`${API_BASE_URL}/documents/process`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        bucket_path: path,
+                        parallel_threads: 4
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Error: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                processingResult.innerHTML = `<div class="alert alert-success">Processing started: ${data.message}</div>`;
+                
+            } catch (error) {
+                console.error('Error:', error);
+                processingResult.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            } finally {
+                processButton.disabled = false;
+            }
+        }
+        
+        // Get document statistics function
+        async function getDocumentStats() {
+            try {
+                statsButton.disabled = true;
+                statsResult.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Loading...';
+                
+                const response = await fetch(`${API_BASE_URL}/documents/stats`);
+                
+                if (!response.ok) {
+                    throw new Error(`Error: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                let statsHtml = `
+                    <p><strong>Total chunks:</strong> ${data.total_chunks}</p>
+                    <p><strong>Unique documents:</strong> ${data.unique_documents}</p>
+                `;
+                
+                if (data.documents && data.documents.length > 0) {
+                    statsHtml += '<details><summary>Documents</summary><ul>';
+                    data.documents.slice(0, 10).forEach(doc => {
+                        statsHtml += `<li>${doc.id}: ${doc.chunks} chunks</li>`;
+                    });
+                    if (data.documents.length > 10) {
+                        statsHtml += `<li>... and ${data.documents.length - 10} more</li>`;
+                    }
+                    statsHtml += '</ul></details>';
+                }
+                
+                statsResult.innerHTML = statsHtml;
+                
+            } catch (error) {
+                console.error('Error:', error);
+                statsResult.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            } finally {
+                statsButton.disabled = false;
+            }
+        }
+        
+        // Get search analytics function
+        async function getSearchAnalytics() {
+            try {
+                analyticsButton.disabled = true;
+                analyticsResult.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Loading...';
+                
+                const response = await fetch(`${API_BASE_URL}/search/analytics?limit=5`);
+                
+                if (!response.ok) {
+                    throw new Error(`Error: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.message) {
+                    analyticsResult.innerHTML = `<p>${data.message}</p>`;
+                    return;
+                }
+                
+                let analyticsHtml = `
+                    <p><strong>Total queries:</strong> ${data.total_queries}</p>
+                    <p><strong>Avg retrieval time:</strong> ${data.avg_retrieval_time.toFixed(3)}s</p>
+                    <p><strong>Avg reranking time:</strong> ${data.avg_reranking_time.toFixed(3)}s</p>
+                    <p><strong>Avg total time:</strong> ${data.avg_total_time.toFixed(3)}s</p>
+                `;
+                
+                analyticsResult.innerHTML = analyticsHtml;
+                
+            } catch (error) {
+                console.error('Error:', error);
+                analyticsResult.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            } finally {
+                analyticsButton.disabled = false;
+            }
+        }
+        
+        // Event listeners
+        sendButton.addEventListener('click', () => {
+            const question = queryInput.value.trim();
+            if (question) {
+                addMessage('user', question);
+                queryInput.value = '';
+                queryRAG(question);
+            }
+        });
+        
+        queryInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendButton.click();
+            }
+        });
+        
+        processButton.addEventListener('click', processDocuments);
+        statsButton.addEventListener('click', getDocumentStats);
+        analyticsButton.addEventListener('click', getSearchAnalytics);
+        
+        // Initial welcome message
+        addMessage('assistant', 'Welcome to JLR Analysis RAG! Ask a question about JLR analytical work.');
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
