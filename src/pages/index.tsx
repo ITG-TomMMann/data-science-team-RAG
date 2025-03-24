@@ -1,4 +1,4 @@
-import { AuthScreen } from '@/components/auth_screen';
+import { AuthScreen } from '../components/auth_screen';
 import { useRouter } from 'next/router';
 
 export default function Home() {
