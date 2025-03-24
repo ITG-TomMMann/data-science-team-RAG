@@ -24,11 +24,11 @@ export function AuthScreen({ onLogin }: AuthScreenProps) {
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col items-center justify-center p-4">
+    <div className="auth-container">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md"
+        className="auth-card"
       >
         <div className="text-center mb-8">
           <img
@@ -58,7 +58,7 @@ export function AuthScreen({ onLogin }: AuthScreenProps) {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-itg-pink focus:border-itg-pink"
+              className="auth-input"
             />
           </div>
 
@@ -82,7 +82,7 @@ export function AuthScreen({ onLogin }: AuthScreenProps) {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-white bg-itg-pink hover:bg-itg-pink-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-itg-pink disabled:opacity-50 disabled:cursor-not-allowed"
+            className="auth-button"
           >
             {isLoading ? (
               <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
