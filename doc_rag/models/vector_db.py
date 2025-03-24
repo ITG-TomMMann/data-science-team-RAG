@@ -16,10 +16,10 @@ import sys
 
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
-from app.agents.doc_rag.utils.doc_embeddings import embedding_service
-from app.agents.doc_rag.utils.gcp import gcp_service  # Use the class, not the instance
-from app.agents.doc_rag.utils.documents import extract_text_from_pdf, split_text_into_paragraphs
-from app.agents.doc_rag.config.settings import get_settings
+from utils.doc_embeddings import embedding_service
+from utils.gcp import gcp_service  # Use the class, not the instance
+from utils.documents import extract_text_from_pdf, split_text_into_paragraphs
+from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 

@@ -6,9 +6,9 @@ from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
 from pydantic import BaseModel
 
-from app.agents.doc_rag.models.rag import ContextualRAG
-from app.agents.doc_rag.models.vector_db import ContextualElasticVectorDB
-from app.agents.doc_rag.config.settings import get_settings, Settings
+from models.rag import ContextualRAG
+from models.vector_db import ContextualElasticVectorDB
+from config.settings import get_settings, Settings
 
 logger = logging.getLogger(__name__)
 

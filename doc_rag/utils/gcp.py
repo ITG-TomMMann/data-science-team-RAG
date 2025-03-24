@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from google.cloud import storage
 from google.auth import default
 import google.generativeai as genai
-from app.agents.doc_rag.config.settings import get_settings
+from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 

@@ -9,10 +9,10 @@ import google.generativeai as genai
 import cohere
 from langdetect import detect, LangDetectException
 
-from app.agents.doc_rag.models.vector_db import ContextualElasticVectorDB
-from app.agents.doc_rag.utils.documents import detect_language, get_language_instruction
-from app.agents.doc_rag.utils.gcp import gcp_service
-from app.agents.doc_rag.config.settings import get_settings
+from models.vector_db import ContextualElasticVectorDB
+from utils.documents import detect_language, get_language_instruction
+from utils.gcp import gcp_service
+from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 

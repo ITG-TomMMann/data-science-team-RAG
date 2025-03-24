@@ -1,0 +1,17 @@
+tqdm
+elasticsearch
+python-dotenv
+langchain
+langchain-community
+numpy
+cohere
+streamlit
+PyMuPDF
+langdetect
+google-generativeai
+google-cloud-aiplatform
+google-cloud-storage
+google-auth
+google-cloud-core
+Pillow
+fastapi

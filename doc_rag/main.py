@@ -11,10 +11,10 @@ from dotenv import load_dotenv
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
-from app.agents.doc_rag.api.routes import router
-from app.agents.doc_rag.config.settings import get_settings
-from app.agents.doc_rag.utils.doc_embeddings import embedding_service
-from app.agents.doc_rag.utils.gcp import gcp_service
+from api.routes import router
+from config.settings import get_settings
+from utils.doc_embeddings import embedding_service
+from utils.gcp import gcp_service
 
 # Load environment variables
 load_dotenv()
@@ -97,8 +97,8 @@ def startup_event():
         logger.info("GCP service initialized")
         
         # Check Elasticsearch connection
-        from app.agents.doc_rag.models.vector_db import ContextualElasticVectorDB
-        from app.agents.doc_rag.models.rag import ContextualRAG
+        from models.vector_db import ContextualElasticVectorDB
+        from models.rag import ContextualRAG
         
         # Try to initialize the vector database
         vector_db = ContextualElasticVectorDB(settings.ELASTIC_INDEX_NAME)
