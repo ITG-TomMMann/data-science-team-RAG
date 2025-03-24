@@ -1,5 +1,4 @@
 import { ChatInterface } from '../components/chat_interface';
-import '../styles/globals.css';
 
 export default function Chat() {
   return (
