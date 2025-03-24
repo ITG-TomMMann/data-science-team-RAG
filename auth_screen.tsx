@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { LogIn } from 'lucide-react';
+import Image from 'next/image';
 
 type AuthScreenProps = {
   onLogin: (email: string, password: string) => Promise<void>;

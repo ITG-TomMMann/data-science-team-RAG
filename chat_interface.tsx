@@ -2,7 +2,9 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, FolderSearch } from 'lucide-react';
 import { useChatStore } from '../store/chat';
+import { queryAPI } from '../services/api';
 import { cn } from '../lib/utils';
+import Image from 'next/image';
 
 const SUGGESTIONS = [
   'Mobile Content Engagement on US Range Rover Nameplate Pages',
