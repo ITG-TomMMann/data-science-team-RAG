@@ -55,7 +55,8 @@ export function Chat() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/query', {
+      const baseUrl = `${window.location.protocol}//${window.location.hostname}:8000`;
+      const response = await fetch(`${baseUrl}/api/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: userMessage }),
