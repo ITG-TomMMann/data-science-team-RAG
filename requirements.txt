@@ -15,3 +15,4 @@ google-auth
 google-cloud-core
 Pillow
 fastapi
+uvicorn

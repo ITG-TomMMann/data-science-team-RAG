@@ -1,0 +1,22 @@
+stages:
+  - Test
+  - Build
+
+Pylint:
+  image: python:3.9
+  allow_failure: true
+  stage: Test
+  script:
+    - pip install black
+    - black --check ./doc_rag
+
+Build and Deploy Rag App:
+  image: 
+    name: gcr.io/kaniko-project/executor:v1.14.0-debug
+    entrypoint: [""]
+  stage: Build
+  script:
+    - /kaniko/executor
+      --context "${CI_PROJECT_DIR}"
+      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
+      --destination europe-docker.pkg.dev/storyteq-artifact-registry-dev/best/ds-rag:${CI_COMMIT_SHORT_SHA:0:7}
