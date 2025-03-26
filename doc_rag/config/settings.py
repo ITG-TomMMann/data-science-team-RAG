@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     LANGSMITH_PROJECT: str = "nl2sql"
     ANTHROPIC_API_KEY: str = ""
     VOYAGE_API_KEY: str = ""
+    GOOGLE_APPLICATION_CREDENTIALS: str = ""
+    GOOGLE_CLOUD_PROJECT: str = ""
     
     # Google Cloud settings
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")

@@ -5,10 +5,25 @@ import logging
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
 from pydantic import BaseModel
+import fitz  # PyMuPDF
+import base64
+import io 
+from fastapi.responses import JSONResponse
+from google.cloud import storage
 
-from models.rag import ContextualRAG
-from models.vector_db import ContextualElasticVectorDB
-from config.settings import get_settings, Settings
+from doc_rag.models.rag import ContextualRAG
+from doc_rag.models.vector_db import ContextualElasticVectorDB
+from doc_rag.config.settings import get_settings, Settings
+
+import traceback 
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import JSONResponse
+from google.cloud import storage
+from doc_rag.config.settings import get_settings, Settings
+from doc_rag.models.rag import ContextualRAG  # if needed
+from google.auth import default  # Import to obtain credentials
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +70,12 @@ class QueryResponse(BaseModel):
     answer: str
     sources: Optional[List[Dict[str, Any]]] = None
     metadata: Optional[Dict[str, Any]] = None
-    
+
+class DocumentPageRequest(BaseModel):
+    doc_id: str
+    page_number: int
+    folder: Optional[str] = None
+
 class FeedbackRequest(BaseModel):
     """Feedback request model."""
     query: str
@@ -125,6 +145,104 @@ async def query_rag(
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
+
+
+
+# Request model
+from pydantic import BaseModel
+class DocumentPageRequest(BaseModel):
+    doc_id: str
+    page_number: int
+    folder: str = None  # Optional folder, defaults handled below
+
+@router.post("/document-page")
+async def get_document_page(
+    request: DocumentPageRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """
+    Retrieve a specific page from a document in GCS as an image.
+    Methodology:
+      1. Obtain GCP credentials via google.auth.default().
+      2. Create a GCS client using these credentials.
+      3. Connect to the bucket defined in settings.
+      4. List blobs using a folder prefix (provided or default).
+      5. Find the PDF whose name ends with the provided doc_id.
+      6. Download the PDF into an in-memory BytesIO object.
+      7. Open the PDF using PyMuPDF, validate the requested page exists, and render that page.
+      8. Convert the rendered page to image bytes.
+      9. Upload the image back to GCS (or optionally, return a base64-encoded image).
+      10. Return the public URL of the uploaded image.
+    """
+    try:
+        # Use google.auth.default() to load credentials from your credentials.json file
+        credentials, project = default()
+        storage_client = storage.Client(credentials=credentials, project=project)
+        
+        bucket_name = settings.gcs_bucket_name
+        bucket = storage_client.bucket(bucket_name)
+        # Use provided folder if available; otherwise, use default prefix
+        prefix = request.folder if request.folder else "JLR_analysis/"
+        
+        file_found = False
+        image_url = None
+
+        # List blobs with the specified prefix
+        blobs = list(bucket.list_blobs(prefix=prefix))
+        for blob in blobs:
+            if blob.name.endswith(request.doc_id):
+                file_found = True
+
+                # Download PDF into memory
+                temp_file = io.BytesIO()
+                blob.download_to_file(temp_file)
+                temp_file.seek(0)
+                file_data = temp_file.read()
+                
+                # Open PDF with PyMuPDF and validate page number
+                with fitz.open(stream=file_data, filetype="pdf") as pdf_document:
+                    num_pages = len(pdf_document)
+                    if request.page_number < 1 or request.page_number > num_pages:
+                        return JSONResponse(
+                            status_code=400,
+                            content={"error": f"Page number {request.page_number} out of range (1-{num_pages})"}
+                        )
+                    page = pdf_document[request.page_number - 1]
+                    pix = page.get_pixmap()
+                    img_data = pix.tobytes()
+                    img_format = "png"
+                    
+                    # Create a unique temporary filename for the image
+                    image_filename = f"temp_images/{request.doc_id.replace('/', '_')}_page_{request.page_number}.{img_format}"
+                    image_blob = bucket.blob(image_filename)
+                    
+                    # Upload the image to GCS
+                    image_blob.upload_from_string(img_data, content_type=f"image/{img_format}")
+                    image_blob.make_public()  # Optional: make image publicly accessible
+                    image_url = image_blob.public_url
+                
+                temp_file.close()
+                break
+        
+        if not file_found:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Document not found: {request.doc_id}"}
+            )
+        if not image_url:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Failed to generate image"}
+            )
+        return {"image_url": image_url}
+    
+    except Exception as e:
+        # Log full stack trace for debugging
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error processing request: {str(e)}", "trace": traceback.format_exc()}
+        )
+
 
 @router.post("/feedback")
 async def submit_feedback(

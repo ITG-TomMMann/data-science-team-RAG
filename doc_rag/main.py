@@ -11,10 +11,10 @@ from dotenv import load_dotenv
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
-from api.routes import router
-from config.settings import get_settings
-from utils.doc_embeddings import embedding_service
-from utils.gcp import gcp_service
+from doc_rag.api.routes import router
+from doc_rag.config.settings import get_settings
+from doc_rag.utils.doc_embeddings import embedding_service
+from doc_rag.utils.gcp import gcp_service
 
 # Load environment variables
 load_dotenv()
@@ -88,17 +88,23 @@ def startup_event():
     """Initialize services on application startup."""
     logger.info("Starting JLR RAG API...")
     try:
-        # Initialize embedding service
-        embedding_service.initialize()
-        logger.info("Embedding service initialized")
+        # Check embedding service initialization
+        # No need to call initialize() as it's now done in __init__
+        if embedding_service.embedding_model is None:
+            logger.warning("Embedding service initialization may have failed, attempting to use on demand")
+        else:
+            logger.info("Embedding service initialized successfully")
         
-        # Initialize GCP service
-        gcp_service.initialize()
-        logger.info("GCP service initialized")
+        # Check GCP service initialization
+        # No need to call initialize() as it's now done in __init__
+        if not getattr(gcp_service, '_initialized', False):
+            logger.warning("GCP service initialization may have failed, attempting to use on demand")
+        else:
+            logger.info("GCP service initialized successfully")
         
         # Check Elasticsearch connection
-        from models.vector_db import ContextualElasticVectorDB
-        from models.rag import ContextualRAG
+        from doc_rag.models.vector_db import ContextualElasticVectorDB
+        from doc_rag.models.rag import ContextualRAG
         
         # Try to initialize the vector database
         vector_db = ContextualElasticVectorDB(settings.ELASTIC_INDEX_NAME)

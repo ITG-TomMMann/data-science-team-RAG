@@ -1,72 +1,166 @@
 """
-Retrieval Augmented Generation (RAG) implementation.
+Contextual RAG model implementation with singleton pattern.
 """
-import re
+import os
 import logging
 from typing import List, Dict, Any, Tuple, Optional
-from datetime import datetime
 import google.generativeai as genai
-import cohere
-from langdetect import detect, LangDetectException
-
-from models.vector_db import ContextualElasticVectorDB
-from utils.documents import detect_language, get_language_instruction
-from utils.gcp import gcp_service
-from config.settings import get_settings
+from doc_rag.config.settings import get_settings
+from doc_rag.utils.gcp import gcp_service
 
 logger = logging.getLogger(__name__)
 
+# Singleton instance
+_instance = None
+
 class ContextualRAG:
-    """Retrieval Augmented Generation with contextual information."""
-    
-    def __init__(self, vector_db: Optional[ContextualElasticVectorDB] = None):
+    def __new__(cls, vector_db=None):
         """
-        Initialize the RAG system.
+        Implement singleton pattern to ensure only one RAG instance exists.
+        """
+        global _instance
+        if _instance is None:
+            _instance = super(ContextualRAG, cls).__new__(cls)
+            _instance._initialized = False
+        return _instance
+    
+    def __init__(self, vector_db=None):
+        """
+        Initialize the RAG system (only runs once due to singleton pattern).
         
         Args:
-            vector_db: Vector database instance. If None, creates a new one.
+            vector_db: Vector database instance.
         """
+        # Skip initialization if already done
+        if hasattr(self, '_initialized') and self._initialized:
+            # If a new vector_db is provided, update it
+            if vector_db is not None and self.vector_db != vector_db:
+                self.vector_db = vector_db
+            return
+            
+        # Store settings and API keys at class level
         settings = get_settings()
+        self.google_api_key = settings.GOOGLE_API_KEY or os.getenv("GOOGLE_API_KEY")
+        
+        if not self.google_api_key:
+            logger.error("Google API key not found in settings or environment variables")
+            raise ValueError("Google API key not found")
         
         if vector_db is None:
-            self.vector_db = ContextualElasticVectorDB()
-        else:
-            self.vector_db = vector_db
+            logger.error("Vector database cannot be None for initial initialization")
+            raise ValueError("Vector database cannot be None")
+            
+        self.vector_db = vector_db
         
-        # Initialize Gemini
-        gcp_service.initialize()
-        self.gemini = gcp_service.gemini_model
-        
-        # Initialize Cohere for reranking if API key is available
-        self.cohere_client = None
-        if settings.COHERE_API_KEY:
+        try:
+            # Configure genai with the stored API key
+            genai.configure(api_key=self.google_api_key)
+            
+            # Use the standard GenerativeModel interface
+            self.gemini = genai.GenerativeModel('gemini-2.0-flash')
+            
+            # Initialize feedback log
+            self.feedback_log = []
+            self.query_metrics_log = []
+            
+            # Mark as initialized
+            self._initialized = True
+            
+            logger.info("ContextualRAG initialized successfully")
+        except Exception as e:
+            self._initialized = False
+            logger.error(f"Error initializing ContextualRAG: {str(e)}")
+            raise
+    
+    def detect_language(self, text: str) -> str:
+        """
+        Detect language using langdetect library
+        Returns ISO 639-1 language code (e.g., 'en', 'es', 'fr', etc.)
+        Defaults to 'en' if detection fails
+        """
+        try:
+            from langdetect import detect, LangDetectException
+            import re
+            
+            # Dictionary of language keywords and their corresponding codes
+            language_keywords = {
+                'german': 'de',
+                'deutsch': 'de',
+                'spanish': 'es',
+                'español': 'es',
+                'espanol': 'es',
+                'french': 'fr',
+                'français': 'fr',
+                'francais': 'fr',
+                'italian': 'it',
+                'italiano': 'it',
+                'portuguese': 'pt',
+                'português': 'pt',
+                'portugues': 'pt',
+                'dutch': 'nl',
+                'nederlands': 'nl',
+                'english': 'en'
+            }
+            # Check for explicit language requests
+            text_lower = text.lower()
+            
+            # Common patterns for language requests
+            patterns = [
+                r'(?:reply|respond|answer|write|say|tell|speak|give|provide|write back|communicate|translate).*(?:in|using|with)\s+(\w+)',
+                r'(?:in|using|with)\s+(\w+).*(?:reply|respond|answer|write|say|tell|speak|give|provide|write back|communicate|translate)',
+                r'(?:translate|convert).*(?:to|into)\s+(\w+)',
+                r'(\w+)\s+(?:translation|version|language)',
+            ]
+            
+            for pattern in patterns:
+                matches = re.findall(pattern, text_lower)
+                for match in matches:
+                    match_lower = match.lower()
+                    if match_lower in language_keywords:
+                        return language_keywords[match_lower]
+            
+            # If no explicit request found, use langdetect
             try:
-                self.cohere_client = cohere.Client(settings.COHERE_API_KEY)
-                logger.info("Cohere client initialized successfully")
-            except Exception as e:
-                logger.error(f"Error initializing Cohere client: {str(e)}")
-        
-        # Initialize feedback log
-        self.feedback_log = []
-        self.query_metrics_log = []
+                return detect(text)
+            except LangDetectException:
+                return 'en'
+        except Exception as e:
+            logger.error(f"Error detecting language: {str(e)}")
+            return 'en'
+    
+    def get_language_instruction(self, lang_code: str) -> str:
+        """
+        Returns the language instruction for Gemini based on the detected language code
+        """
+        language_map = {
+            'es': 'You must respond in Spanish. Format your entire response in Spanish.',
+            'fr': 'You must respond in French. Format your entire response in French.',
+            'de': 'You must respond in German. Format your entire response in German.',
+            'it': 'You must respond in Italian. Format your entire response in Italian.',
+            'pt': 'You must respond in Portuguese. Format your entire response in Portuguese.',
+            'nl': 'You must respond in Dutch. Format your entire response in Dutch.',
+            'en': 'You must respond in English. Format your entire response in English.'
+        }
+        return language_map.get(lang_code, 'You must respond in English. Format your entire response in English.')
     
     def query(self, question: str) -> Tuple[str, List[Dict]]:
-        """
-        Query the RAG system.
-        
-        Args:
-            question: User's question.
+        """Query the RAG system with improved analytics"""
+        # Ensure we're initialized
+        if not self._initialized:
+            error_msg = "RAG service not properly initialized"
+            logger.error(error_msg)
+            return error_msg, []
             
-        Returns:
-            Tuple of (response text, list of sources).
-        """
         # Start timing
-        start_time = datetime.now()
+        import time
+        from datetime import datetime
+        
+        start_time = time.time()
         
         # Track query metrics
         query_metrics = {
             "query": question,
-            "timestamp": start_time.isoformat(),
+            "timestamp": datetime.now().isoformat(),
             "retrieval_time": 0,
             "llm_time": 0,
             "total_time": 0,
@@ -75,14 +169,18 @@ class ContextualRAG:
         }
         
         # Detect the language of the question
-        lang_code = detect_language(question)
-        language_instruction = get_language_instruction(lang_code)
+        lang_code = self.detect_language(question)
+        language_instruction = self.get_language_instruction(lang_code)
         
         # Get relevant documents with context - use query expansion by default
-        retrieval_start = datetime.now()
-        initial_results = self.vector_db.search(question, k=5, use_expansion=True)
-        query_metrics["retrieval_time"] = (datetime.now() - retrieval_start).total_seconds()
-        query_metrics["num_results"] = len(initial_results)
+        retrieval_start = time.time()
+        try:
+            initial_results = self.vector_db.search(question, k=5, use_expansion=True)
+            query_metrics["retrieval_time"] = time.time() - retrieval_start
+            query_metrics["num_results"] = len(initial_results)
+        except Exception as e:
+            logger.error(f"Error retrieving results: {str(e)}")
+            return f"Error retrieving search results: {str(e)}", []
         
         # Track sources
         for result in initial_results:
@@ -100,6 +198,7 @@ class ContextualRAG:
             combined_text = content + " " + context
             
             # Look for references to other pages in the text
+            import re
             page_references = re.findall(r'page\s+(\d+)', combined_text)
             for page_ref in page_references:
                 try:
@@ -113,16 +212,19 @@ class ContextualRAG:
         additional_results = []
         if mentioned_pages:
             for doc_id, page_num in mentioned_pages:
-                # Search for content from the specific page
-                page_results = self.vector_db._hybrid_search(f"document:{doc_id} page:{page_num}", k=2)
-                additional_results.extend(page_results)
-                
-                # Add to query metrics
-                query_metrics["sources"].append({
-                    "doc_id": doc_id,
-                    "page": page_num,
-                    "source": "page_reference"
-                })
+                try:
+                    # Search for content from the specific page
+                    page_results = self.vector_db._hybrid_search(f"document:{doc_id} page:{page_num}", k=2)
+                    additional_results.extend(page_results)
+                    
+                    # Add to query metrics
+                    query_metrics["sources"].append({
+                        "doc_id": doc_id,
+                        "page": page_num,
+                        "source": "page_reference"
+                    })
+                except Exception as e:
+                    logger.error(f"Error retrieving additional page {page_num} from {doc_id}: {str(e)}")
         
         # Combine initial and additional results, removing duplicates
         all_results = initial_results.copy()
@@ -180,8 +282,16 @@ Context:
         """
         
         # Generate response
-        llm_start = datetime.now()
+        llm_start = time.time()
+        
         try:
+            # First, check if our previously initialized model is available
+            if not hasattr(self, 'gemini') or self.gemini is None:
+                # Re-initialize if needed
+                genai.configure(api_key=self.google_api_key)
+                self.gemini = genai.GenerativeModel('gemini-2.0-flash')
+                
+            # Now generate the response
             response = self.gemini.generate_content(
                 prompt,
                 generation_config=genai.types.GenerationConfig(
@@ -190,45 +300,38 @@ Context:
                     top_k=40
                 )
             )
-            answer = response.text.strip()
+            answer_text = response.text.strip()
         except Exception as e:
-            logger.error(f"Error generating content: {str(e)}")
-            answer = f"I apologize, but I encountered an error when trying to process your question. Please try again or rephrase your question."
-        
-        query_metrics["llm_time"] = (datetime.now() - llm_start).total_seconds()
+            logger.error(f"Error generating content with Gemini: {str(e)}")
+            answer_text = f"I apologize, but I encountered an error processing your request. Error details: {str(e)}"
+            
+        query_metrics["llm_time"] = time.time() - llm_start
         
         # Calculate total time
-        query_metrics["total_time"] = (datetime.now() - start_time).total_seconds()
+        query_metrics["total_time"] = time.time() - start_time
         
         # Log metrics for analysis
         self._log_query_metrics(query_metrics)
         
-        return answer, all_results
+        return answer_text, all_results
     
     def _log_query_metrics(self, metrics: Dict[str, Any]):
-        """Log query metrics for analysis."""
+        """Log query metrics for analysis"""
         try:
             # Append to in-memory log
+            if not hasattr(self, 'query_metrics_log'):
+                self.query_metrics_log = []
             self.query_metrics_log.append(metrics)
             
-            # Log performance metrics
+            # Could also write to a file or database
             logger.info(f"Query processed in {metrics['total_time']:.2f}s (retrieval: {metrics['retrieval_time']:.2f}s, LLM: {metrics['llm_time']:.2f}s)")
         except Exception as e:
             logger.error(f"Error logging metrics: {str(e)}")
     
-    def log_feedback(self, query: str, response: str, feedback: str, improvement: str = None) -> int:
-        """
-        Log user feedback for continuous improvement.
+    def log_feedback(self, query: str, response: str, feedback: str, improvement: str = None):
+        """Log user feedback for continuous improvement"""
+        from datetime import datetime
         
-        Args:
-            query: User's original query.
-            response: System's response.
-            feedback: User's feedback ("positive" or "negative").
-            improvement: User's suggestion for improvement.
-            
-        Returns:
-            Number of feedback entries.
-        """
         feedback_entry = {
             "query": query,
             "response": response,
@@ -240,6 +343,19 @@ Context:
             feedback_entry["improvement"] = improvement
             
         self.feedback_log.append(feedback_entry)
-        logger.info(f"Feedback logged: {feedback} for query: {query[:50]}...")
         
+        # Could also write to a file or database
         return len(self.feedback_log)
+
+# Create a function to get the singleton instance
+def get_rag_service(vector_db=None) -> ContextualRAG:
+    """
+    Get the singleton instance of ContextualRAG.
+    
+    Args:
+        vector_db: Optional vector database to use or update
+        
+    Returns:
+        Initialized ContextualRAG instance
+    """
+    return ContextualRAG(vector_db)
