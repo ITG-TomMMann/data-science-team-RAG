@@ -17,24 +17,31 @@ class GCPService:
     
     def __init__(self):
         """Initialize the GCP service."""
+        self.storage_client = None
+        self.gemini_model = None
+        self._initialized = False
+    
+    def initialize(self):
+        """Initialize GCP clients."""
+        if self._initialized:
+            return
+            
         try:
             settings = get_settings()
             
-            # Configure Gemini (similar to RAG_POC.py approach)
+            # Configure Gemini
             genai.configure(api_key=settings.GOOGLE_API_KEY)
             self.gemini_model = genai.GenerativeModel('gemini-2.0-flash')
             
-            # Configure Storage with credentials (exactly like in RAG_POC.py)
+            # Configure Storage
             credentials, project = default()
             self.storage_client = storage.Client(credentials=credentials, project=project)
             
-            logger.info("GCP Service initialized successfully")
             self._initialized = True
+            logger.info("GCP Service initialized successfully")
         except Exception as e:
             logger.error(f"Error initializing GCP service: {str(e)}")
-            self.storage_client = None
-            self.gemini_model = None
-            self._initialized = False
+            raise
     
     def generate_context(self, doc: str, chunk: str) -> str:
         """
@@ -47,18 +54,8 @@ class GCPService:
         Returns:
             Generated contextual description.
         """
-        # If not initialized in __init__, try again
         if not self._initialized:
-            try:
-                settings = get_settings()
-                genai.configure(api_key=settings.GOOGLE_API_KEY)
-                self.gemini_model = genai.GenerativeModel('gemini-2.0-flash')
-                credentials, project = default()
-                self.storage_client = storage.Client(credentials=credentials, project=project)
-                self._initialized = True
-            except Exception as e:
-                logger.error(f"Error initializing GCP service on retry: {str(e)}")
-                return "No context available"
+            self.initialize()
             
         prompt = f"""
         Please analyze this complete document carefully:
@@ -106,18 +103,8 @@ class GCPService:
         Returns:
             Expanded query with related terms.
         """
-        # If not initialized in __init__, try again
         if not self._initialized:
-            try:
-                settings = get_settings()
-                genai.configure(api_key=settings.GOOGLE_API_KEY)
-                self.gemini_model = genai.GenerativeModel('gemini-2.0-flash')
-                credentials, project = default()
-                self.storage_client = storage.Client(credentials=credentials, project=project)
-                self._initialized = True
-            except Exception as e:
-                logger.error(f"Error initializing GCP service on retry: {str(e)}")
-                return query
+            self.initialize()
             
         try:
             prompt = f"""
@@ -155,18 +142,8 @@ class GCPService:
         Returns:
             Blob content as bytes or None if not found.
         """
-        # If not initialized in __init__, try again
         if not self._initialized:
-            try:
-                settings = get_settings()
-                genai.configure(api_key=settings.GOOGLE_API_KEY)
-                self.gemini_model = genai.GenerativeModel('gemini-2.0-flash')
-                credentials, project = default()
-                self.storage_client = storage.Client(credentials=credentials, project=project)
-                self._initialized = True
-            except Exception as e:
-                logger.error(f"Error initializing GCP service on retry: {str(e)}")
-                return None
+            self.initialize()
             
         try:
             bucket = self.storage_client.bucket(bucket_name)
