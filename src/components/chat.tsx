@@ -44,6 +44,77 @@ const QUICK_LINKS = [
   },
 ];
 
+// Helper function to format message content with markdown-like styling
+const formatMessageContent = (content: string) => {
+  if (!content) return null;
+
+  // Process the content line by line
+  const lines = content.split('\n');
+  
+  return (
+    <>
+      {lines.map((line, lineIndex) => {
+        // Handle bullet points and indentation
+        const bulletPointMatch = line.match(/^(\s*)([*•-])\s+(.*)/);
+        
+        if (bulletPointMatch) {
+          const [, indent, bullet, text] = bulletPointMatch;
+          const indentLevel = indent.length;
+          
+          // Process bold text in bullet points
+          const formattedText = processBoldText(text);
+          
+          return (
+            <div 
+              key={lineIndex} 
+              className="flex" 
+              style={{ marginLeft: `${indentLevel * 8}px`, marginTop: indentLevel === 0 ? '8px' : '4px' }}
+            >
+              <span className="mr-2">{bullet}</span>
+              <div>{formattedText}</div>
+            </div>
+          );
+        } 
+        // Handle section headers (lines ending with ":")
+        else if (line.trim().endsWith(':') && !line.includes('Sources:')) {
+          return (
+            <div key={lineIndex} className="font-semibold mt-3 mb-1">
+              {processBoldText(line)}
+            </div>
+          );
+        }
+        // Regular lines
+        else {
+          return (
+            <div key={lineIndex} className={lineIndex > 0 ? 'mt-2' : ''}>
+              {processBoldText(line)}
+            </div>
+          );
+        }
+      })}
+    </>
+  );
+};
+
+// Helper function to process bold text (**text**)
+const processBoldText = (text: string) => {
+  if (!text.includes('**')) return text;
+
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          const boldText = part.slice(2, -2);
+          return <strong key={index}>{boldText}</strong>;
+        }
+        return <span key={index}>{part}</span>;
+      })}
+    </>
+  );
+};
+
 export function Chat() {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -139,7 +210,7 @@ export function Chat() {
       // Get auth token if available
       const token = typeof getToken === 'function' ? getToken() : null;
       
-      const response = await fetch(`${baseUrl}/query`, {
+      const response = await fetch(`${baseUrl}/api/query`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -269,7 +340,11 @@ export function Chat() {
                     : 'bg-gray-100 text-gray-900'
                 }`}
               >
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                {/* Use the formatting function instead of direct text rendering */}
+                <div className="message-content">
+                  {formatMessageContent(message.content)}
+                </div>
+                
                 {message.sources && message.sources.length > 0 && (
                   <div className="mt-2 text-sm">
                     <p className="font-semibold">Sources:</p>
