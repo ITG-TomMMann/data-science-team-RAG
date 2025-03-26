@@ -179,7 +179,7 @@ async def get_document_page(
         credentials, project = default()
         storage_client = storage.Client(credentials=credentials, project=project)
         
-        bucket_name = settings.gcs_bucket_name
+        bucket_name = settings.GCS_BUCKET_NAME
         bucket = storage_client.bucket(bucket_name)
         # Use provided folder if available; otherwise, use default prefix
         prefix = request.folder if request.folder else "JLR_analysis/"
