@@ -11,18 +11,22 @@ import io
 from fastapi.responses import JSONResponse
 from google.cloud import storage
 
-from doc_rag.models.rag import ContextualRAG
-from doc_rag.models.vector_db import ContextualElasticVectorDB
+from doc_rag.rag.rag import ContextualRAG
+from doc_rag.rag.vector_db import ContextualElasticVectorDB
 from doc_rag.config.settings import get_settings, Settings
-
+from sqlalchemy.orm import Session
 import traceback 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from google.cloud import storage
 from doc_rag.config.settings import get_settings, Settings
-from doc_rag.models.rag import ContextualRAG  # if needed
+from doc_rag.rag.rag import ContextualRAG  # if needed
 from google.auth import default  # Import to obtain credentials
-
+from doc_rag.database.database import get_db
+from doc_rag.users.users_model import User, Conversation, Message
+from doc_rag.rag.rag import ContextualRAG
+from doc_rag.rag.vector_db import ContextualElasticVectorDB
+from doc_rag.auth.dependencies import get_current_active_user
 
 
 logger = logging.getLogger(__name__)
@@ -98,14 +102,18 @@ class DocumentStatsResponse(BaseModel):
 @router.post("/query", response_model=QueryResponse)
 async def query_rag(
     request: QueryRequest,
+    conversation_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
     rag: ContextualRAG = Depends(get_rag_service),
     settings: Settings = Depends(get_settings)
 ):
     """
-    Query the RAG system.
+    Query the RAG system and store conversation history.
     
     Args:
         request: Query request with search parameters.
+        conversation_id: Optional ID of existing conversation.
         
     Returns:
         Answer and source documents.
@@ -134,10 +142,57 @@ async def query_rag(
             "sources_used": min(5, len(sources))
         }
         
+        # Store in conversation history
+        if conversation_id:
+            # Check if conversation exists and belongs to user
+            conversation = db.query(Conversation).filter(
+                Conversation.id == conversation_id,
+                Conversation.user_id == current_user.id
+            ).first()
+            if not conversation:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+        else:
+            # Create new conversation
+            conversation = Conversation(
+                title=f"Conversation: {request.query[:50]}...",
+                user_id=current_user.id
+            )
+            db.add(conversation)
+            db.commit()
+            db.refresh(conversation)
+        
+        # Add user message
+        user_message = Message(
+            conversation_id=conversation.id,
+            content=request.query,
+            is_user=True
+        )
+        db.add(user_message)
+        
+        # Add system response
+        query_metadata = {
+            "sources": formatted_sources,
+            "metadata": metadata,
+            "search_params": request.search_params
+        }
+        
+        system_message = Message(
+            conversation_id=conversation.id,
+            content=answer,
+            is_user=False,
+            query_metadata=query_metadata
+        )
+        db.add(system_message)
+        
+        # Update conversation timestamp
+        conversation.updated_at = datetime.utcnow()
+        db.commit()
+        
+        # Include conversation ID in response
         response = QueryResponse(
             answer=answer,
             sources=formatted_sources[:5],  # Limit to 5 sources in response
-            metadata=metadata
+            metadata={**metadata, "conversation_id": str(conversation.id)}
         )
         
         logger.info("Successfully generated query response")
@@ -145,7 +200,6 @@ async def query_rag(
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
-
 
 
 # Request model

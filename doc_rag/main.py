@@ -11,10 +11,14 @@ from dotenv import load_dotenv
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
-from doc_rag.api.routes import router
+from doc_rag.routers.rag_routes import router
 from doc_rag.config.settings import get_settings
 from doc_rag.utils.doc_embeddings import embedding_service
 from doc_rag.utils.gcp import gcp_service
+from doc_rag.routers.auth_routes import router as auth_router
+from doc_rag.routers.conversation_routes import router as conversation_router
+from doc_rag.database.database import Base, engine
+
 
 # Load environment variables
 load_dotenv()
@@ -88,6 +92,8 @@ def startup_event():
     """Initialize services on application startup."""
     logger.info("Starting JLR RAG API...")
     try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables initialized")
         # Check embedding service initialization
         # No need to call initialize() as it's now done in __init__
         if embedding_service.embedding_model is None:
@@ -103,8 +109,8 @@ def startup_event():
             logger.info("GCP service initialized successfully")
         
         # Check Elasticsearch connection
-        from doc_rag.models.vector_db import ContextualElasticVectorDB
-        from doc_rag.models.rag import ContextualRAG
+        from doc_rag.rag.vector_db import ContextualElasticVectorDB
+        from doc_rag.rag.rag import ContextualRAG
         
         # Try to initialize the vector database
         vector_db = ContextualElasticVectorDB(settings.ELASTIC_INDEX_NAME)
@@ -121,6 +127,8 @@ def startup_event():
 
 # Include API routes
 app.include_router(router, prefix="/api")
+app.include_router(auth_router, prefix="/api/auth", tags=["authentication"])
+app.include_router(conversation_router, prefix="/api/conversations", tags=["conversations"])
 
 # Root endpoint
 @app.get("/")
